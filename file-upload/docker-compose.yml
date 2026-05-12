@@ -1,0 +1,57 @@
+services:
+  minio:
+    image: minio/minio:latest
+    container_name: file-minio
+    restart: always
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio-data:/data
+    command: server /data --console-address ":9001"
+    networks:
+      - file-network
+    ports:
+      - "9001:9001"
+
+  backend:
+    build: ./backend
+    container_name: file-backend
+    restart: always
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET: ${MINIO_BUCKET}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
+      MINIO_PORT: ${MINIO_PORT}
+      PORT: 5000
+    depends_on:
+      - minio
+    networks:
+      - file-network
+
+  frontend:
+    build: ./frontend
+    container_name: file-frontend
+    restart: always
+    networks:
+      - file-network
+
+  nginx:
+    build: ./nginx
+    container_name: file-nginx
+    restart: always
+    ports:
+      - "83:80"
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - file-network
+
+networks:
+  file-network:
+    driver: bridge
+
+volumes:
+  minio-data:
