@@ -1,53 +1,40 @@
 pipeline {
     agent any
-
     environment {
         APP_NAME = 'todo-app'
         REGISTRY = 'registry-raheman.in'
         GIT_CREDENTIALS_ID = 'GIT_TOKEN'
         INFRA_REPO = 'https://github.com/Git-Raheman/infra.git'
     }
-
-    // Trigger only when files in todo-app folder change
     triggers {
         pollSCM('H/2 * * * *')
     }
-
     stages {
         stage('Clean Workspace') {
             steps {
                 cleanWs()
             }
         }
-
         stage('Checkout') {
             steps {
                 checkout scm
             }
         }
-
         stage('Build-Images') {
             steps {
                 script {
-                    // Backend
                     sh "docker build -t ${REGISTRY}/${APP_NAME}-backend:${BUILD_NUMBER} ./${APP_NAME}/backend"
-                    // Frontend
                     sh "docker build -t ${REGISTRY}/${APP_NAME}-frontend:${BUILD_NUMBER} ./${APP_NAME}/frontend"
-                    // Nginx
                     sh "docker build -t ${REGISTRY}/${APP_NAME}-nginx:${BUILD_NUMBER} ./${APP_NAME}/nginx"
                 }
             }
         }
-
         stage('Push-Images') {
             steps {
                 script {
-                    // No auth needed for open registry
                     sh "docker push ${REGISTRY}/${APP_NAME}-backend:${BUILD_NUMBER}"
                     sh "docker push ${REGISTRY}/${APP_NAME}-frontend:${BUILD_NUMBER}"
                     sh "docker push ${REGISTRY}/${APP_NAME}-nginx:${BUILD_NUMBER}"
-                    
-                    // Also push latest for initial setup reference
                     sh "docker tag ${REGISTRY}/${APP_NAME}-backend:${BUILD_NUMBER} ${REGISTRY}/${APP_NAME}-backend:latest"
                     sh "docker tag ${REGISTRY}/${APP_NAME}-frontend:${BUILD_NUMBER} ${REGISTRY}/${APP_NAME}-frontend:latest"
                     sh "docker tag ${REGISTRY}/${APP_NAME}-nginx:${BUILD_NUMBER} ${REGISTRY}/${APP_NAME}-nginx:latest"
@@ -57,24 +44,16 @@ pipeline {
                 }
             }
         }
-
         stage('Update-Infra') {
             steps {
                 script {
                     withCredentials([string(credentialsId: GIT_CREDENTIALS_ID, variable: 'GIT_TOKEN')]) {
                         sh """
-                            git clone https://github.com/Git-Raheman/infra.git
+                            git clone https://\${GIT_TOKEN}@github.com/Git-Raheman/infra.git
                             cd infra/${APP_NAME}
-                            
-                            # Update backend image
                             sed -i "s|image: ${REGISTRY}/${APP_NAME}-backend:.*|image: ${REGISTRY}/${APP_NAME}-backend:${BUILD_NUMBER}|g" deployment.yaml
-                            
-                            # Update frontend image
                             sed -i "s|image: ${REGISTRY}/${APP_NAME}-frontend:.*|image: ${REGISTRY}/${APP_NAME}-frontend:${BUILD_NUMBER}|g" deployment.yaml
-                            
-                            # Update nginx image
                             sed -i "s|image: ${REGISTRY}/${APP_NAME}-nginx:.*|image: ${REGISTRY}/${APP_NAME}-nginx:${BUILD_NUMBER}|g" deployment.yaml
-                            
                             git config user.email "jenkins@raheman.in"
                             git config user.name "Jenkins Bot"
                             git add deployment.yaml
@@ -85,7 +64,6 @@ pipeline {
                 }
             }
         }
-
         stage('Done') {
             steps {
                 echo "Pipeline finished successfully for ${APP_NAME} build ${BUILD_NUMBER}"
