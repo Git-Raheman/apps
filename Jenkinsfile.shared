@@ -1,0 +1,52 @@
+// Jenkins Shared Library (vars/buildAndDeploy.groovy)
+// This simplifies the Jenkinsfiles by centralizing the build and infra update logic.
+
+def call(Map config) {
+    pipeline {
+        agent {
+            label 'docker'
+        }
+        environment {
+            APP_NAME = config.appName
+            REGISTRY = 'registry-raheman.in'
+            DOCKER_CRED = 'registry-raheman-credentials'
+            GIT_CRED = 'git-raheman-token'
+        }
+        stages {
+            stage('Checkout') {
+                steps { checkout scm }
+            }
+            stage('Build & Push') {
+                steps {
+                    script {
+                        docker.withRegistry("https://${REGISTRY}", DOCKER_CRED) {
+                            ['backend', 'frontend', 'nginx'].each { service ->
+                                def img = docker.build("${REGISTRY}/${APP_NAME}-${service}:${BUILD_NUMBER}", "./${APP_NAME}/${service}")
+                                img.push()
+                                img.push('latest')
+                            }
+                        }
+                    }
+                }
+            }
+            stage('Update Manifests') {
+                steps {
+                    withCredentials([string(credentialsId: GIT_CRED, variable: 'GIT_TOKEN')]) {
+                        sh """
+                            git clone https://${GIT_TOKEN}@github.com/Git-Raheman/infra.git
+                            cd infra/${APP_NAME}
+                            sed -i 's|image: ${REGISTRY}/${APP_NAME}-backend:.*|image: ${REGISTRY}/${APP_NAME}-backend:${BUILD_NUMBER}|g' deployment.yaml
+                            sed -i 's|image: ${REGISTRY}/${APP_NAME}-frontend:.*|image: ${REGISTRY}/${APP_NAME}-frontend:${BUILD_NUMBER}|g' deployment.yaml
+                            sed -i 's|image: ${REGISTRY}/${APP_NAME}-nginx:.*|image: ${REGISTRY}/${APP_NAME}-nginx:${BUILD_NUMBER}|g' deployment.yaml
+                            git config user.email "jenkins@raheman.in"
+                            git config user.name "Jenkins Bot"
+                            git add deployment.yaml
+                            git commit -m "Update ${APP_NAME} image to ${BUILD_NUMBER}"
+                            git push origin main
+                        """
+                    }
+                }
+            }
+        }
+    }
+}

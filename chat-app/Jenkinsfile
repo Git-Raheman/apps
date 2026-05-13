@@ -1,0 +1,71 @@
+pipeline {
+    agent any
+
+    environment {
+        APP_NAME = 'chat-app'
+        REGISTRY = 'registry-raheman.in'
+        DOCKER_CREDENTIALS_ID = 'registry-raheman-credentials'
+        GIT_CREDENTIALS_ID = 'git-raheman-token'
+        INFRA_REPO = 'https://github.com/Git-Raheman/infra.git'
+    }
+
+    triggers {
+        pollSCM('H/5 * * * *')
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Build Images') {
+            steps {
+                script {
+                    docker.withRegistry("https://${REGISTRY}", DOCKER_CREDENTIALS_ID) {
+                        def backendImage = docker.build("${REGISTRY}/${APP_NAME}-backend:${BUILD_NUMBER}", "./${APP_NAME}/backend")
+                        def frontendImage = docker.build("${REGISTRY}/${APP_NAME}-frontend:${BUILD_NUMBER}", "./${APP_NAME}/frontend")
+                        def nginxImage = docker.build("${REGISTRY}/${APP_NAME}-nginx:${BUILD_NUMBER}", "./${APP_NAME}/nginx")
+                        
+                        backendImage.push()
+                        backendImage.push('latest')
+                        
+                        frontendImage.push()
+                        frontendImage.push('latest')
+                        
+                        nginxImage.push()
+                        nginxImage.push('latest')
+                    }
+                }
+            }
+        }
+
+        stage('Update Infra') {
+            steps {
+                script {
+                    withCredentials([string(credentialsId: GIT_CREDENTIALS_ID, variable: 'GIT_TOKEN')]) {
+                        sh """
+                            git clone https://${GIT_TOKEN}@github.com/Git-Raheman/infra.git
+                            cd infra/${APP_NAME}
+                            sed -i 's|image: ${REGISTRY}/${APP_NAME}-backend:.*|image: ${REGISTRY}/${APP_NAME}-backend:${BUILD_NUMBER}|g' deployment.yaml
+                            sed -i 's|image: ${REGISTRY}/${APP_NAME}-frontend:.*|image: ${REGISTRY}/${APP_NAME}-frontend:${BUILD_NUMBER}|g' deployment.yaml
+                            sed -i 's|image: ${REGISTRY}/${APP_NAME}-nginx:.*|image: ${REGISTRY}/${APP_NAME}-nginx:${BUILD_NUMBER}|g' deployment.yaml
+                            git config user.email "jenkins@raheman.in"
+                            git config user.name "Jenkins Bot"
+                            git add deployment.yaml
+                            git commit -m "Update ${APP_NAME} image to ${BUILD_NUMBER}"
+                            git push origin main
+                        """
+                    }
+                }
+            }
+        }
+
+        stage('Notify') {
+            steps {
+                echo "Deployment for ${APP_NAME} version ${BUILD_NUMBER} initiated."
+            }
+        }
+    }
+}
