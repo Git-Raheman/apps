@@ -63,7 +63,7 @@ pipeline {
                 script {
                     withCredentials([string(credentialsId: GIT_CREDENTIALS_ID, variable: 'GIT_TOKEN')]) {
                         sh """
-                            git clone https://${GIT_TOKEN}@github.com/Git-Raheman/infra.git
+                            git clone https://github.com/Git-Raheman/infra.git
                             cd infra/${APP_NAME}
                             
                             # Update backend image
